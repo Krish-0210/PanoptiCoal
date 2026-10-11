@@ -7,6 +7,7 @@ import CountUp from '../components/CountUp'
 import MaskLines from '../components/MaskLines'
 import { IconTile, type IconName } from '../components/Icons'
 import { SatellitePlantScene } from '../components/Illustrations'
+import LoadRetry from '../components/LoadRetry'
 import MethodScene from '../components/MethodScene'
 import NaiveVsModel from '../components/NaiveVsModel'
 import PageHero, { Divider, type TickerItem } from '../components/PageHero'
@@ -313,18 +314,21 @@ export default function HowItWorks() {
   // All 11 cluster files and series for the raw-vs-model comparison.
   const [all, setAll] = useState<{ details: ClusterDetail[]; series: Record<string, TimeseriesFile> }>()
   const ids = list.map((c) => c.id).join(',')
+  // A failed load (after the automatic retries in api.ts) shows a retry; files that did arrive stay cached.
+  const [allFailed, setAllFailed] = useState<number>()
+  const [allTurn, setAllTurn] = useState(0)
   useEffect(() => {
     if (!ids) return
     let live = true
     const idl = ids.split(',')
     Promise.all([Promise.all(idl.map(fetchCluster)), Promise.all(idl.map(fetchTimeseries))]).then(
       ([details, series]) => live && setAll({ details, series: Object.fromEntries(series.map((t) => [t.id, t])) }),
-      () => undefined,
+      () => live && setAllFailed(allTurn),
     )
     return () => {
       live = false
     }
-  }, [ids])
+  }, [ids, allTurn])
   const ticker: TickerItem[] = useMemo(() => {
     const s = summary.data
     if (!s) return []
@@ -483,7 +487,15 @@ export default function HowItWorks() {
           <MaskLines lines={['Weather hides', 'the signal.']} delay={80} />
         </h2>
         <div className="reveal" style={{ '--d': '160ms' } as CSSProperties}>
-          {all ? <NaiveVsModel details={all.details} series={all.series} /> : <div className="loading micro">Loading the 11 clusters…</div>}
+          {all ? (
+            <NaiveVsModel details={all.details} series={all.series} />
+          ) : allFailed === allTurn ? (
+            <div className="loading">
+              <LoadRetry onRetry={() => setAllTurn((n) => n + 1)} />
+            </div>
+          ) : (
+            <div className="loading micro">Loading the 11 clusters…</div>
+          )}
         </div>
         <Divider />
       </section>

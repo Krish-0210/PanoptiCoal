@@ -7,6 +7,7 @@ import BigWord from '../components/BigWord'
 import CountUp from '../components/CountUp'
 import Icon from '../components/Icons'
 import { InspectorScene } from '../components/Illustrations'
+import LoadRetry from '../components/LoadRetry'
 import Markdown from '../components/Markdown'
 import { Ticker, type TickerItem } from '../components/PageHero'
 import { fmt, fmtInt, fmtP, fmtPct, RISK_COLOR, RISK_LABEL } from '../lib/format'
@@ -675,7 +676,11 @@ export default function ClusterPage() {
           {tab === 'evidence' && (
             <div className="grid">
               <Signals c={c} />
-              {ts.error && <div className="alert err">Could not load time series: {ts.error}</div>}
+              {ts.error && (
+                <div className="alert">
+                  <LoadRetry onRetry={() => ts.reload?.()} />
+                </div>
+              )}
               {ts.data && (
                 <Suspense fallback={<div className="loading micro">Loading charts…</div>}>
                   <ClusterCharts months={ts.data.months} />

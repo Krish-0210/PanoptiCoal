@@ -318,3 +318,9 @@ main p a:not(.pill):not(.ulink):hover, .lede a:hover, main li a:not(.pill):not(.
 
 /* Reduced motion: the logo's rings stand still. */
 @media (prefers-reduced-motion: reduce) { .logo-mark.spin .lm-orbit, .logo-mark.spin .lm-iris, .brand.blink .logo-mark { animation: none; } }
+
+/* ---------- Inline "couldn't load, retry" (components/LoadRetry.tsx) ---------- */
+.load-retry { display: inline-flex; align-items: center; gap: 6px; }
+.load-retry-btn { background: none; border: 0; padding: 0; font: inherit; letter-spacing: inherit; text-transform: inherit; color: var(--signal); cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.load-retry-btn:hover, .load-retry-btn:focus-visible { color: var(--text); }
+.spark-fail { height: 30px; }

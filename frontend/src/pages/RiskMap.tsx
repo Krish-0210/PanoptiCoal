@@ -8,6 +8,7 @@ import CountUp from '../components/CountUp'
 import Icon from '../components/Icons'
 import PageHero, { Divider, type TickerItem } from '../components/PageHero'
 import RiskBeacons from '../components/RiskBeacons'
+import LoadRetry from '../components/LoadRetry'
 import Sparkline from '../components/Sparkline'
 import WindPanel from '../components/WindPanel'
 import { useFlip } from '../lib/flip'
@@ -44,17 +45,29 @@ export default function RiskMap() {
   const list = useRef<HTMLOListElement>(null)
   const capture = useFlip(list, [level, conf, state])
 
-  // Residual sparklines: the 11 small time-series files, fetched once the list is up.
+  // Residual sparklines: the 11 small time-series files, fetched once the list is up (queued three
+  // at a time in api.ts). Each card fills in as its file arrives; one that fails offers a retry.
+  const [failed, setFailed] = useState<Record<string, boolean>>({})
+  const alive = useRef(true)
   useEffect(() => {
-    if (!data) return
-    let live = true
-    Promise.all(data.clusters.map((c) => fetchTimeseries(c.id).catch(() => undefined))).then((all) => {
-      if (live) setSeries(Object.fromEntries(all.filter(Boolean).map((t) => [t!.id, t!])))
-    })
+    alive.current = true
     return () => {
-      live = false
+      alive.current = false
     }
-  }, [data])
+  }, [])
+  const loadSeries = useCallback((id: string) => {
+    fetchTimeseries(id).then(
+      (t) => alive.current && setSeries((s) => ({ ...s, [id]: t })),
+      () => alive.current && setFailed((f) => ({ ...f, [id]: true })),
+    )
+  }, [])
+  const retrySeries = (id: string) => {
+    setFailed((f) => ({ ...f, [id]: false }))
+    loadSeries(id)
+  }
+  useEffect(() => {
+    data?.clusters.forEach((c) => loadSeries(c.id))
+  }, [data, loadSeries])
 
   const select = (id: string) => {
     void fetchCluster(id) // warm the cache so the cluster page renders its title on the first frame
@@ -239,6 +252,8 @@ export default function RiskMap() {
                     <span className="rank-spark">
                       {series[c.id] ? (
                         <Sparkline months={series[c.id].months} w={260} h={30} label={`${c.name}: monthly NO₂ residual, ${CONF_LABEL[c.confidence].toLowerCase()}`} />
+                      ) : failed[c.id] ? (
+                        <LoadRetry inLink className="spark-fail" onRetry={() => retrySeries(c.id)} />
                       ) : (
                         <span className="spark-skel" />
                       )}

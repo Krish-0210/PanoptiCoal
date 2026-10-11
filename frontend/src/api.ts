@@ -222,10 +222,50 @@ const url = (apiPath: string, file: string) => (API_URL ? API_URL + apiPath : st
 const pending = new Map<string, Promise<unknown>>()
 const settled = new Map<string, unknown>()
 
-function getJson<T>(href: string): Promise<T> {
+// At most `limit` requests in flight; the rest wait their turn. The API's Lambda runs only a few
+// copies at once and answers 503 beyond that, and some pages ask for all 11 clusters together.
+function queue(limit: number) {
+  let active = 0
+  const waiting: (() => void)[] = []
+  const next = () => {
+    active--
+    waiting.shift()?.()
+  }
+  return <T,>(job: () => Promise<T>): Promise<T> =>
+    new Promise<T>((resolve, reject) => {
+      const run = () => {
+        active++
+        job().then(resolve, reject).finally(next)
+      }
+      if (active < limit) run()
+      else waiting.push(run)
+    })
+}
+const seriesQueue = queue(3) // the time-series files
+const otherQueue = queue(4) // everything else
+
+// fetch that retries a busy answer (503, 429) or a network error: up to 3 more tries after about
+// 300 ms, 900 ms and 2 s (± 25% jitter, so parallel retries do not land together).
+const RETRY_MS = [300, 900, 2000]
+const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
+async function fetchRetry(href: string): Promise<Response> {
+  for (let i = 0; ; i++) {
+    let res: Response | undefined
+    try {
+      res = await fetch(href)
+    } catch (e) {
+      if (i >= RETRY_MS.length) throw e
+    }
+    if (res && !((res.status === 503 || res.status === 429) && i < RETRY_MS.length)) return res
+    await wait(RETRY_MS[i] * (0.75 + Math.random() * 0.5))
+  }
+}
+
+function getJson<T>(href: string, q = otherQueue): Promise<T> {
   let p = pending.get(href)
   if (!p) {
-    p = fetch(href).then(async (res) => {
+    p = q(async () => {
+      const res = await fetchRetry(href)
       if (!res.ok) throw new Error(`${href}: HTTP ${res.status}`)
       const v = await res.json()
       settled.set(href, v)
@@ -241,7 +281,7 @@ const peek = <T>(href: string) => settled.get(href) as T | undefined
 export const fetchClusters = () => getJson<ClustersFile>(url('/clusters', 'clusters.json'))
 export const fetchCluster = (id: string) => getJson<ClusterDetail>(url(`/clusters/${id}`, `cluster_${id}.json`))
 export const fetchTimeseries = (id: string) =>
-  getJson<TimeseriesFile>(url(`/clusters/${id}/timeseries`, `timeseries_${id}.json`))
+  getJson<TimeseriesFile>(url(`/clusters/${id}/timeseries`, `timeseries_${id}.json`), seriesQueue)
 export const fetchSummary = () => getJson<SummaryFile>(url('/summary', 'summary.json'))
 export const fetchPlantsIndia = () => getJson<PlantsIndiaFile>(url('/plants', 'plants_india.json'))
 export const fetchStates = () => getJson<StatesFile>(url('/states', 'states.json'))
@@ -258,7 +298,7 @@ export function fetchWind(id: string): Promise<WindTrace> {
   const hit = windCache.get(id)
   if (hit && Date.now() - hit.at < WIND_TTL) return hit.p
   const href = API_URL ? `${API_URL}/clusters/${id}/wind` : `${staticBase}wind_${id}.json`
-  const p = fetch(href).then(async (res) => {
+  const p = fetchRetry(href).then(async (res) => {
     if (!res.ok) throw new Error(`${href}: HTTP ${res.status}`)
     const v = await res.json()
     return (API_URL ? v : v.trace) as WindTrace

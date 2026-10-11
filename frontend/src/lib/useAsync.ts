@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 
 export interface AsyncState<T> {
   data?: T
   error?: string
+  reload?: () => void // run fn again (after an error)
 }
 
 // Runs fn when deps change; results from stale calls are ignored. `peek` may return an already
@@ -13,6 +14,11 @@ export function useAsync<T>(fn: () => Promise<T>, deps: unknown[], peek?: () => 
     const data = peek?.()
     return data === undefined ? {} : { key, data }
   })
+  const [turn, setTurn] = useState(0)
+  const reload = useCallback(() => {
+    setState({})
+    setTurn((n) => n + 1)
+  }, [])
   const cached = state.key !== key ? peek?.() : undefined
   useEffect(() => {
     let live = true
@@ -24,6 +30,6 @@ export function useAsync<T>(fn: () => Promise<T>, deps: unknown[], peek?: () => 
       live = false
     }
     // oxlint-disable-next-line react-hooks/exhaustive-deps
-  }, [key])
-  return state.key === key ? state : cached !== undefined ? { data: cached } : {}
+  }, [key, turn])
+  return state.key === key ? { ...state, reload } : cached !== undefined ? { data: cached } : {}
 }
