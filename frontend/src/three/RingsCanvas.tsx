@@ -81,7 +81,7 @@ function Particles({ count }: { count: number }) {
   )
 }
 
-function Scene({ count }: { count: number }) {
+function Scene({ count, eco }: { count: number; eco: boolean }) {
   const group = useRef<THREE.Group>(null)
   return (
     <group ref={group} rotation={[0.08, 0, 0]}>
@@ -98,15 +98,17 @@ function Scene({ count }: { count: number }) {
         <sphereGeometry args={[0.09, 16, 16]} />
         <meshBasicMaterial color={EMBER} toneMapped={false} />
       </mesh>
-      <Particles count={count} />
+      {!eco && <Particles count={count} />}
     </group>
   )
 }
 
-export default function RingsCanvas({ count, lite }: { count: number; lite: boolean }) {
+// eco = lite mode (lib/lite): DPR 1, no particles, no auto-rotation; it redraws only while dragged.
+export default function RingsCanvas({ count, lite, eco = false }: { count: number; lite: boolean; eco?: boolean }) {
   const host = useRef<HTMLDivElement>(null)
   const [visible, setVisible] = useState(true)
-  const [maxDpr] = useState(() => Math.min(window.devicePixelRatio || 1, lite ? 1.25 : 1.5))
+  const [fullDpr] = useState(() => Math.min(window.devicePixelRatio || 1, lite ? 1.25 : 1.5))
+  const maxDpr = eco ? 1 : fullDpr
   // Render only while on screen and the tab is visible.
   useEffect(() => {
     const el = host.current
@@ -128,15 +130,15 @@ export default function RingsCanvas({ count, lite }: { count: number; lite: bool
     <div ref={host} className="rings-host">
       <Canvas
         dpr={[1, maxDpr]}
-        frameloop={visible ? 'always' : 'never'}
+        frameloop={visible ? (eco ? 'demand' : 'always') : 'never'}
         camera={{ fov: 35, position: [0, 9.6, 18.6], near: 0.1, far: 100 }}
-        gl={{ antialias: maxDpr <= 1, alpha: true, stencil: false }}
+        gl={{ antialias: fullDpr <= 1, alpha: true, stencil: false }}
         onCreated={({ gl }) => {
           gl.debug.checkShaderErrors = import.meta.env.DEV
         }}
       >
-        <Scene count={count} />
-        <OrbitControls enableZoom={false} enablePan={false} autoRotate autoRotateSpeed={0.5} minPolarAngle={0.35} maxPolarAngle={1.35} />
+        <Scene count={count} eco={eco} />
+        <OrbitControls enableZoom={false} enablePan={false} autoRotate={!eco} autoRotateSpeed={0.5} minPolarAngle={0.35} maxPolarAngle={1.35} />
       </Canvas>
     </div>
   )

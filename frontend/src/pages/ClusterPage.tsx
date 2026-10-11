@@ -10,6 +10,7 @@ import { InspectorScene } from '../components/Illustrations'
 import Markdown from '../components/Markdown'
 import { Ticker, type TickerItem } from '../components/PageHero'
 import { fmt, fmtInt, fmtP, fmtPct, RISK_COLOR, RISK_LABEL } from '../lib/format'
+import { useLite } from '../lib/lite'
 import { prefersReducedMotion, useInView, useIsMobile, useReducedMotion } from '../lib/motion'
 import { useBackdropTone } from '../lib/backdrop'
 import { scrollToY } from '../lib/scroll'
@@ -82,14 +83,15 @@ function RingsPoster() {
 function HeroStage({ c, months }: { c: ClusterDetail; months?: MonthPoint[] }) {
   const reduced = useReducedMotion()
   const mobile = useIsMobile()
-  const obs = (months ?? []).map((m) => m.observed_no2).filter((x): x is number => x != null)
+  const liteOn = useLite()
+  const obs =(months ?? []).map((m) => m.observed_no2).filter((x): x is number => x != null)
   const mean = obs.length ? obs.reduce((a, b) => a + b, 0) / obs.length : 0
   const count = Math.round(Math.min(3500, 120 + mean * 16) * (mobile ? 0.5 : 1))
   const gl = !reduced && webglOk()
   return (
     <div className="ch-stage">
       <div className="ch-rings">
-        {gl ? <Suspense fallback={<RingsPoster />}>{months ? <RingsCanvas count={count} lite={mobile} /> : <RingsPoster />}</Suspense> : <RingsPoster />}
+        {gl ? <Suspense fallback={<RingsPoster />}>{months ? <RingsCanvas count={count} lite={mobile} eco={liteOn} /> : <RingsPoster />}</Suspense> : <RingsPoster />}
       </div>
       <div className="ch-gauge card">
         <Gauge c={c} />

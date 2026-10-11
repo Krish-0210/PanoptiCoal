@@ -6,15 +6,26 @@ import { useNavigate } from 'react-router-dom'
 import { RISK_COLOR, RISK_LABEL } from '../lib/format'
 import { gsap } from '../lib/gsap'
 import type { ClusterSummary } from '../api'
+import { lite as liteMode } from '../lib/lite'
 import GlobeScene, { type GlobeControl } from './GlobeScene'
+import { textureLoads } from './loads'
 
 interface Props {
   clusters: ClusterSummary[]
   focusId: string
   control: MutableRefObject<GlobeControl>
   lite: boolean
+  eco?: boolean // lite mode (lib/lite): DPR 1, no particles or halo, no auto-rotation
+  still?: boolean // reduced motion: one still frame, redrawn only on drag, scroll or a scan
   onReady?: () => void
 }
+
+// Lite mode switches itself on when the globe renders below SLOW_FPS for SLOW_FOR whole seconds in a
+// row, measured (not guessed from the hardware) while it is on screen and animating, during its
+// first WATCH_FOR seconds of animation.
+const SLOW_FPS = 25
+const SLOW_FOR = 5
+const WATCH_FOR = 20
 
 
 // Renders from GSAP's ticker (the same loop that drives Lenis and ScrollTrigger), and only when
@@ -22,24 +33,59 @@ interface Props {
 // screen, the tab is visible and the intro is not holding it. onFirstFrame fires after the first
 // render (programs linked), which is when the intro starts its clock. Capped at ~60 fps: on 120/144 Hz
 // screens a globe frame on every refresh left no GPU time for the page around it.
-function Driver({ control, live, onFirstFrame }: { control: MutableRefObject<GlobeControl>; live: MutableRefObject<boolean>; onFirstFrame?: () => void }) {
+//
+// Still (reduced motion): no free-running frames at all. A frame is drawn only when something the
+// user did changed the view (drag, scroll progress, a scan request), or a texture arrived.
+//
+// Unless the visitor has already chosen (lib/lite), the loop also counts its own frames to switch
+// lite mode on for machines that cannot keep up.
+function Driver({ control, live, still, eco, onFirstFrame }: { control: MutableRefObject<GlobeControl>; live: MutableRefObject<boolean>; still: boolean; eco: boolean; onFirstFrame?: () => void }) {
   const get = useThree((s) => s.get)
   const size = useThree((s) => s.size)
   const dpr = useThree((s) => s.viewport.dpr)
   const dirty = useRef(true)
   useEffect(() => {
     dirty.current = true
-  }, [size, dpr])
+  }, [size, dpr, still, eco])
   const first = useRef(onFirstFrame)
   useEffect(() => {
     let last = -1
+    let seen = ''
+    const fps = { from: 0, frames: 0, slow: 0, watched: 0, off: still || eco }
     const tick = (time: number) => {
       const c = control.current
-      if (!live.current || !(dirty.current || (c.active && !c.paused) || holdBusy())) return
+      let wanted: boolean
+      let sig = seen
+      if (still) {
+        sig = `${c.progress}|${c.scan?.t ?? 0}|${c.intro ?? 1}|${textureLoads()}`
+        wanted = sig !== seen || c.dragYaw !== 0 || c.dragPitch !== 0
+      } else wanted = !!c.active || holdBusy()
+      if (!fps.off) {
+        // Whole seconds of uninterrupted animation after the intro has handed over; anything else restarts the count.
+        const now = performance.now()
+        if (!live.current || !wanted || c.paused || (c.intro ?? 1) < 1 || first.current || holdBusy() || liteMode.chosen) {
+          fps.from = 0
+          fps.slow = 0
+        } else if (!fps.from) {
+          fps.from = now + 1000 // skip the first second (shader warm-up, hand-off)
+          fps.frames = 0
+        } else if (now - fps.from >= 1000) {
+          fps.slow = (fps.frames * 1000) / (now - fps.from) < SLOW_FPS ? fps.slow + 1 : 0
+          fps.from = now
+          fps.frames = 0
+          if (fps.slow >= SLOW_FOR) {
+            fps.off = true
+            liteMode.auto()
+          } else if (++fps.watched >= WATCH_FOR) fps.off = true
+        }
+      }
+      if (!live.current || !(dirty.current || (still ? wanted && !c.paused : (c.active && !c.paused) || holdBusy()))) return
       // gsap time is in seconds; 15 ms leaves headroom for 60 Hz frames that arrive slightly early
       if (time - last < 0.015) return
       last = time
       dirty.current = false
+      seen = sig
+      if (fps.from && performance.now() >= fps.from) fps.frames++
       advance(time, true, get())
       if (first.current) {
         const f = first.current
@@ -50,19 +96,21 @@ function Driver({ control, live, onFirstFrame }: { control: MutableRefObject<Glo
     }
     gsap.ticker.add(tick)
     return () => gsap.ticker.remove(tick)
-  }, [get, control, live])
+  }, [get, control, live, still, eco])
   return null
 }
 
 // Canvas host: adaptive DPR, stops rendering when off-screen or hidden, handles drag + parallax.
-function GlobeCanvas({ clusters, focusId, control, lite, onReady }: Props) {
+function GlobeCanvas({ clusters, focusId, control, lite, eco = false, still = false, onReady }: Props) {
   const host = useRef<HTMLDivElement>(null)
   const live = useRef(true)
   const maxDpr = Math.min(window.devicePixelRatio || 1, lite ? 1.25 : 1.5)
   // Start one step below the cap; PerformanceMonitor raises it if frames stay fast.
   const [initialDpr] = useState(() => Math.max(1, maxDpr - 0.25))
-  const [dpr, setDpr] = useState(initialDpr)
+  const [fullDpr, setDpr] = useState(initialDpr)
   const ceiling = useRef(maxDpr)
+  // Lite mode renders at DPR 1, whatever the monitor had settled on.
+  const dpr = eco ? 1 : fullDpr
 
   useEffect(() => {
     const el = host.current
@@ -217,18 +265,18 @@ function GlobeCanvas({ clusters, focusId, control, lite, onReady }: Props) {
           // No bloom pass: on an integrated GPU it halved the frame rate and its shader compile was a
           // long frame; the scene's additive Halo sprite gives the glow instead.
           onIncline={() => {
-            if (dpr < ceiling.current) setDpr(Math.min(ceiling.current, dpr + 0.25))
+            if (!eco && fullDpr < ceiling.current) setDpr(Math.min(ceiling.current, fullDpr + 0.25))
           }}
           onDecline={() => {
-            if (dpr > 1) {
+            if (!eco && fullDpr > 1) {
               // Never climb back to a level that was too slow (no flip-flopping).
-              ceiling.current = dpr - 0.25
-              setDpr(dpr - 0.25)
+              ceiling.current = fullDpr - 0.25
+              setDpr(fullDpr - 0.25)
             }
           }}
         >
-          <Driver control={control} live={live} onFirstFrame={onReady} />
-          <GlobeScene clusters={clusters} focusId={focusId} control={control} lite={lite} glow />
+          <Driver control={control} live={live} still={still} eco={eco} onFirstFrame={onReady} />
+          <GlobeScene clusters={clusters} focusId={focusId} control={control} lite={lite || eco} glow eco={eco} still={still} />
         </PerformanceMonitor>
       </Canvas>
       <div ref={tip} className={`globe-tip${hovered ? ' on' : ''}`} role="tooltip">

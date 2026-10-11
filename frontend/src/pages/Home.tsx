@@ -18,6 +18,7 @@ import { holdNav, shouldPlayIntro } from '../lib/intro'
 import { Divider, Ticker, type TickerItem } from '../components/PageHero'
 import { fmt, fmtInt, RISK_COLOR } from '../lib/format'
 import { ScrollTrigger } from '../lib/gsap'
+import { useLite } from '../lib/lite'
 import { useIsMobile, useReducedMotion } from '../lib/motion'
 import { useBackdropTone } from '../lib/backdrop'
 import { scrollTop, scrollToY } from '../lib/scroll'
@@ -90,7 +91,8 @@ export default function Home() {
 
   const reduced = useReducedMotion()
   const mobile = useIsMobile()
-  const stage = useRef<HTMLDivElement>(null)
+  const liteOn = useLite()
+  const stage =useRef<HTMLDivElement>(null)
   const control = useRef<GlobeControl>({ progress: 0, dragging: false, dragYaw: 0, dragPitch: 0, mouseX: 0, mouseY: 0 })
   const hero = useRef<HTMLDivElement>(null)
   const orbit = useRef<HTMLDivElement>(null)
@@ -170,8 +172,9 @@ export default function Home() {
 
   // Otherwise the 3D scene (and the WebGL probe, which can block for a while on first GPU use) loads
   // on the first sign of intent (pointer, scroll, touch, key) or after 2.5 s; the poster shows until then.
+  // (With reduced motion it mounts the same way, as a still frame that only redraws on drag or scroll.)
   useEffect(() => {
-    if (reduced || introOn || mount3d) return
+    if (introOn || mount3d) return
     const events = ['pointermove', 'pointerdown', 'wheel', 'scroll', 'touchstart', 'keydown'] as const
     let done = false
     const go = () => {
@@ -187,7 +190,7 @@ export default function Home() {
       events.forEach((e) => window.removeEventListener(e, go))
     }
     return cleanup
-  }, [reduced, introOn, mount3d])
+  }, [introOn, mount3d])
 
   // Scroll progress through the pinned stage. Continuous values go straight to refs and DOM;
   // React only re-renders when the story step changes.
@@ -261,7 +264,7 @@ export default function Home() {
             <GlobePoster />
             {mount3d && clusters.data && focus && (
               <Suspense fallback={null}>
-                <GlobeCanvas clusters={clusters.data.clusters} focusId={focus.id} control={control} lite={mobile} onReady={onReady} />
+                <GlobeCanvas clusters={clusters.data.clusters} focusId={focus.id} control={control} lite={mobile} eco={liteOn} still={reduced} onReady={onReady} />
               </Suspense>
             )}
           </div>

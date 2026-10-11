@@ -5,13 +5,14 @@ import { backdropFor } from '../lib/backdrop'
 import { setLenis } from '../lib/scroll'
 import { gsap, ScrollTrigger } from '../lib/gsap'
 import { useInteractions } from '../lib/interactions'
-import { prefersReducedMotion } from '../lib/motion'
+import { useReducedMotion } from '../lib/motion'
 import { scramble } from '../lib/scramble'
 import Backdrop from './Backdrop'
 import Blinds from './Blinds'
 import Cursor from './Cursor'
 import Footer from './Footer'
 import HoldFX from './HoldFX'
+import { LiteNote } from './LiteToggle'
 import PageTransition from './PageTransition'
 import SoundToggle from './SoundToggle'
 import SwapText from './SwapText'
@@ -32,11 +33,12 @@ let lenis: Lenis | null = null // mirrored in lib/scroll for page-level scrollTo
 // Smooth scroll on desktop with motion allowed; touch keeps native scrolling. Lenis runs inside
 // GSAP's ticker (first in the queue) and feeds ScrollTrigger, so there is a single frame loop.
 function useSmoothScroll() {
+  const reduced = useReducedMotion()
   useEffect(() => {
     const refresh = () => ScrollTrigger.refresh()
     document.fonts?.ready.then(refresh)
     window.addEventListener('load', refresh, { once: true })
-    if (prefersReducedMotion() || window.matchMedia('(pointer: coarse)').matches) return () => window.removeEventListener('load', refresh)
+    if (reduced || window.matchMedia('(pointer: coarse)').matches) return () => window.removeEventListener('load', refresh)
     lenis = new Lenis({ lerp: 0.1, smoothWheel: true, syncTouch: false, wheelMultiplier: 0.9, autoRaf: false })
     lenis.on('scroll', ScrollTrigger.update)
     setLenis(lenis)
@@ -50,7 +52,7 @@ function useSmoothScroll() {
       lenis = null
       setLenis(null)
     }
-  }, [])
+  }, [reduced])
 }
 
 const LOOPING = 'svg.il, svg.la, svg.pipe, svg.method-scene, svg.beacons, svg.rings-poster, .ticker'
@@ -58,10 +60,10 @@ const LOOPING = 'svg.il, svg.la, svg.pipe, svg.method-scene, svg.beacons, svg.ri
 // Adds .in to .reveal / .rule elements as they enter the viewport, and drifts [data-parallax]
 // elements relative to their section. Watches the DOM so lazily loaded content is picked up.
 function useRevealAndParallax(root: React.RefObject<HTMLElement | null>, key: string) {
+  const reduced = useReducedMotion()
   useEffect(() => {
     const el = root.current
     if (!el) return
-    const reduced = prefersReducedMotion()
     const io = new IntersectionObserver(
       (entries) =>
         entries.forEach((e) => {
@@ -171,8 +173,10 @@ function useRevealAndParallax(root: React.RefObject<HTMLElement | null>, key: st
       el.removeEventListener('focusin', onFocus)
       window.removeEventListener('resize', onResize)
       gsap.ticker.remove(update)
+      // parallax offsets do not outlive the loop (motion switched off while the page is open)
+      if (!reduced) para.forEach((p) => (p.style.transform = ''))
     }
-  }, [root, key])
+  }, [root, key, reduced])
 }
 
 // Thin bar under the nav: how far down the page you are.
@@ -266,6 +270,7 @@ export default function Layout() {
       <Cursor />
       <HoldFX />
       <PageTransition />
+      <LiteNote />
       <Backdrop variant={backdropFor(pathname)} />
       <div className="proto-banner" role="note">
         <span className="micro">

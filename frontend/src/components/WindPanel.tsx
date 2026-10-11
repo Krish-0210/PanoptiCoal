@@ -5,6 +5,7 @@ import { Circle, CircleMarker, MapContainer, Marker, Polygon, Polyline, TileLaye
 import type { ClusterSummary, WindTrace } from '../api'
 import { fetchWind } from '../api'
 import { fmtInt, RISK_COLOR } from '../lib/format'
+import { prefersReducedMotion } from '../lib/motion'
 import { useAsync } from '../lib/useAsync'
 import '../styles/wind.css'
 
@@ -32,7 +33,7 @@ const arrowHead = (deg: number) =>
 function Recenter({ lat, lon }: { lat: number; lon: number }) {
   const map = useMap()
   useEffect(() => {
-    map.setView([lat, lon], map.getZoom(), { animate: true })
+    map.setView([lat, lon], map.getZoom(), { animate: !prefersReducedMotion() })
   }, [map, lat, lon])
   return null
 }

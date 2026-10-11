@@ -300,3 +300,21 @@ main p a:not(.pill):not(.ulink):hover, .lede a:hover, main li a:not(.pill):not(.
 .footer a.pill, .footer a.pill:hover { color: var(--signal-ink); } .footer a.ulink { color: var(--text); } .footer a.ulink:hover { color: var(--signal); }
 .hold-vignette { position: fixed; left: 0; top: 0; width: 200vw; height: 200vh; pointer-events: none; z-index: 2890; display: none; opacity: 0; will-change: transform, opacity;
   background: radial-gradient(circle at 50% 50%, rgba(2, 4, 6, 0) 0, rgba(2, 4, 6, 0) 9vmax, rgba(2, 4, 6, 0.85) 75vmax); }
+
+/* ---------- Lite mode (lib/lite.ts, components/LiteToggle.tsx) ---------- */
+.lite-toggle { display: inline-flex; align-items: center; gap: 8px; background: none; border: 0; padding: 0; cursor: pointer; transition: color 0.25s; }
+.lite-toggle:hover { color: var(--text); }
+.lite-toggle .mono { color: var(--text); }
+.lite-toggle i { width: 7px; height: 7px; border-radius: 50%; border: 1px solid currentColor; }
+.lite-toggle.on i { background: var(--signal); border-color: var(--signal); }
+.lite-toggle.on .mono { color: var(--signal); }
+.lite-note {
+  position: fixed; right: 20px; bottom: 20px; z-index: 2000; display: flex; align-items: center; gap: 12px; max-width: calc(100vw - 40px);
+  padding: 10px 10px 10px 14px; border-radius: 10px; border: 1px solid var(--border-2); background: rgba(14, 18, 23, 0.94);
+}
+.lite-note .micro { color: var(--text); letter-spacing: 0.08em; line-height: 1.5; }
+.lite-note-x { flex: none; width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--border-2); background: none; color: var(--muted); cursor: pointer; font-size: 15px; line-height: 1; }
+.lite-note-x:hover { color: var(--text); border-color: var(--signal); }
+
+/* Reduced motion: the logo's rings stand still. */
+@media (prefers-reduced-motion: reduce) { .logo-mark.spin .lm-orbit, .logo-mark.spin .lm-iris, .brand.blink .logo-mark { animation: none; } }

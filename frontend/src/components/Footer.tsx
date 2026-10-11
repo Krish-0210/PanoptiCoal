@@ -4,6 +4,7 @@ import { fetchSummary, peekSummary } from '../api'
 import { GITHUB_URL } from '../lib/links'
 import { useInView } from '../lib/motion'
 import { useAsync } from '../lib/useAsync'
+import LiteToggle from './LiteToggle'
 import { Wordmark } from './Logo'
 import MaskLines from './MaskLines'
 import ScanWord from './ScanWord'
@@ -131,6 +132,7 @@ export default function Footer() {
         <span className="micro">
           IST <IstClock /> · Sentinel-5P passes over at about 13:30 local time
         </span>
+        <LiteToggle />
         <span className="micro footer-hint">
           <i aria-hidden="true" /> Sound on? Sweep across the scan lines
         </span>

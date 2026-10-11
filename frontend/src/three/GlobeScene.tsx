@@ -8,6 +8,7 @@ import type { ClusterSummary } from '../api'
 import { easeInOut, easeOut, span } from '../lib/motion'
 import { faceRotation, kmToUnits, latLonToVec3, wrapAngle } from './geo'
 import { heroDist, heroOffset } from './layout'
+import { textureLoaded } from './loads'
 
 export interface GlobePin {
   id: string
@@ -37,6 +38,8 @@ interface Props {
   control: MutableRefObject<GlobeControl>
   lite: boolean
   glow: boolean // cheap additive halo instead of bloom
+  eco?: boolean // lite mode: no plume particles or halo, no auto-rotation (static cluster markers instead)
+  still?: boolean // reduced motion: nothing moves on its own; the view changes only with drag, scroll or a scan
 }
 
 const SIGNAL = new THREE.Color('#7ce8d8')
@@ -61,6 +64,7 @@ function loadTex(name: string, gl: THREE.WebGLRenderer, opts: { red?: boolean; a
     t.flipY = !bitmaps // an ImageBitmap is already flipped at decode
     t.needsUpdate = true
     gl.initTexture(t)
+    textureLoaded()
   }
   if (bitmaps) bitmaps.load(TEX_BASE + name, done)
   else new THREE.ImageLoader().load(TEX_BASE + name, done)
@@ -162,7 +166,7 @@ const cloudShader = {
       gl_FragColor = vec4(mix(vec3(0.55, 0.68, 0.75), vec3(0.85, 0.92, 0.95), day), a);
     }`,
 }
-function Clouds({ sun, opacity }: { sun: THREE.Vector3; opacity: MutableRefObject<number> }) {
+function Clouds({ sun, opacity, still }: { sun: THREE.Vector3; opacity: MutableRefObject<number>; still: boolean }) {
   const gl = useThree((s) => s.gl)
   const uniforms = useMemo(
     () => ({ uMap: { value: loadTex('clouds.webp', gl, { red: true }) }, uSun: { value: sun }, uShift: { value: 0 }, uOpacity: { value: 0.22 } }),
@@ -170,7 +174,7 @@ function Clouds({ sun, opacity }: { sun: THREE.Vector3; opacity: MutableRefObjec
   )
   useEffect(() => () => uniforms.uMap.value.dispose(), [uniforms])
   useFrame((_, dt) => {
-    uniforms.uShift.value = (uniforms.uShift.value + Math.min(dt, 0.1) * 0.0018) % 1
+    if (!still) uniforms.uShift.value = (uniforms.uShift.value + Math.min(dt, 0.1) * 0.0018) % 1
     uniforms.uOpacity.value = opacity.current
   })
   return (
@@ -373,6 +377,27 @@ function Plumes({ clusters, total, scale, control }: { clusters: ClusterSummary[
   )
 }
 
+/* ---------- Markers: one static dot per cluster, in place of the plumes (lite mode, reduced motion) ---------- */
+function Markers({ clusters, scale }: { clusters: ClusterSummary[]; scale: MutableRefObject<number> }) {
+  const group = useRef<THREE.Group>(null)
+  const at = useMemo(() => clusters.map((c) => latLonToVec3(c.lat, c.lon).normalize().multiplyScalar(1.004)), [clusters])
+  useFrame(() => {
+    // Shrinks with the plumes on the way down to the close-up.
+    const k = Math.max(0.12, scale.current)
+    group.current?.children.forEach((m) => m.scale.setScalar(k))
+  })
+  return (
+    <group ref={group} renderOrder={4}>
+      {clusters.map((c, i) => (
+        <mesh key={c.id} position={at[i]}>
+          <sphereGeometry args={[0.006 + 0.005 * (c.risk_score / 100), 12, 12]} />
+          <meshBasicMaterial color={EMBER} toneMapped={false} />
+        </mesh>
+      ))}
+    </group>
+  )
+}
+
 /* ---------- Method rings around the focus cluster: 10 km, 20 km, 50–80 km background ---------- */
 function Rings({ lat, lon, reveal }: { lat: number; lon: number; reveal: MutableRefObject<number> }) {
   const mats = useRef<THREE.MeshBasicMaterial[]>([])
@@ -444,7 +469,7 @@ const beamShader = {
     void main() { gl_FragColor = vec4(uColor, uA * (0.15 + 0.85 * smoothstep(0.0, 1.0, vY))); }`,
 }
 const R_ORBIT = 1.32
-function Satellite({ fade, clusters, lite, control }: { fade: MutableRefObject<number>; clusters: ClusterSummary[]; lite: boolean; control: MutableRefObject<GlobeControl> }) {
+function Satellite({ fade, clusters, lite, control, still }: { fade: MutableRefObject<number>; clusters: ClusterSummary[]; lite: boolean; control: MutableRefObject<GlobeControl>; still: boolean }) {
   const sat = useRef<THREE.Group>(null)
   const glow = useRef<THREE.Sprite>(null)
   const beam = useRef<THREE.Mesh>(null)
@@ -495,8 +520,10 @@ function Satellite({ fade, clusters, lite, control }: { fade: MutableRefObject<n
   const tmp = useMemo(() => ({ p: new THREE.Vector3(), up: new THREE.Vector3(), g: new THREE.Vector3(), e: new THREE.Vector3(), y: new THREE.Vector3(0, 1, 0), z: new THREE.Vector3(0, 0, 1) }), [])
 
   useFrame((_, delta) => {
-    const dt = Math.min(delta, 0.1)
+    // Still (reduced motion): the satellite holds its place on the orbit and sends no beams.
+    const dt = still ? 0 : Math.min(delta, 0.1)
     const s = st.current
+    if (still) s.beamT = -1
     // Scan request (hero button): sweep the satellite to the orbit point above the cluster, then beam.
     const req = control.current.scan
     let sweeping = false
@@ -513,7 +540,7 @@ function Satellite({ fade, clusters, lite, control }: { fade: MutableRefObject<n
       s.t += diff * Math.min(1, dt * 7)
       sweeping = true
     } else s.t += dt * 0.22
-    if (req && !sweeping && sinceScan < 1 && s.beamT < 0 && s.target === req.idx) {
+    if (!still && req && !sweeping && sinceScan < 1 && s.beamT < 0 && s.target === req.idx) {
       s.beamT = 0
       s.len = 2.6
     }
@@ -533,7 +560,7 @@ function Satellite({ fade, clusters, lite, control }: { fade: MutableRefObject<n
 
     // Scan beam: when the satellite passes over a cluster, point at it for ~1.6 s.
     s.cool -= dt
-    if (s.beamT < 0 && s.cool <= 0 && f > 0.5 && sinceScan > 3) {
+    if (!still && s.beamT < 0 && s.cool <= 0 && f > 0.5 && sinceScan > 3) {
       const up = tmp.up.copy(p).normalize()
       let best = -1, bestDot = Math.cos(THREE.MathUtils.degToRad(16))
       dirs.forEach((d, i) => {
@@ -625,7 +652,7 @@ const starShader = {
       gl_FragColor = vec4(vec3(0.85, 0.92, 1.0), smoothstep(0.5, 0.1, d) * vA);
     }`,
 }
-function Stars({ count, control }: { count: number; control: MutableRefObject<GlobeControl> }) {
+function Stars({ count, control, still }: { count: number; control: MutableRefObject<GlobeControl>; still: boolean }) {
   const group = useRef<THREE.Points>(null)
   const { gl } = useThree()
   const geo = useMemo(() => {
@@ -647,10 +674,11 @@ function Stars({ count, control }: { count: number; control: MutableRefObject<Gl
   useEffect(() => () => geo.dispose(), [geo])
   const uniforms = useMemo(() => ({ uTime: { value: 0 }, uPx: { value: 1 } }), [])
   useFrame((_, dt) => {
-    uniforms.uTime.value += Math.min(dt, 0.1)
+    if (!still) uniforms.uTime.value += Math.min(dt, 0.1)
     uniforms.uPx.value = gl.getPixelRatio()
     const g = group.current
-    if (g) {
+    if (g && still) g.rotation.set(0, 0, 0)
+    else if (g) {
       // Opposite drift to the globe's parallax: the far field lags behind.
       g.rotation.y += (-control.current.mouseX * 0.025 - g.rotation.y) * Math.min(1, dt * 2)
       g.rotation.x += (-control.current.mouseY * 0.018 - g.rotation.x) * Math.min(1, dt * 2)
@@ -664,7 +692,7 @@ function Stars({ count, control }: { count: number; control: MutableRefObject<Gl
 }
 
 /* ---------- Scene ---------- */
-export default function GlobeScene({ clusters, focusId, control, lite, glow }: Props) {
+export default function GlobeScene({ clusters, focusId, control, lite, glow, eco = false, still = false }: Props) {
   const globe = useRef<THREE.Group>(null)
   const { camera, size, gl, scene } = useThree()
   // Compile every shader up front (rings included), so nothing compiles mid-scroll.
@@ -674,7 +702,8 @@ export default function GlobeScene({ clusters, focusId, control, lite, glow }: P
   const focus = clusters.find((c) => c.id === focusId) ?? clusters[0]
   const indiaRot = useMemo(() => faceRotation(INDIA.lat, INDIA.lon), [])
   const focusRot = useMemo(() => faceRotation(focus.lat, focus.lon), [focus])
-  const free = useRef({ yaw: indiaRot.yaw - 0.9, pitch: indiaRot.pitch * 0.6 })
+  // Without auto-rotation (lite mode, reduced motion) the globe starts with India already in view.
+  const free = useRef({ yaw: indiaRot.yaw - (eco || still ? 0.3 : 0.9), pitch: indiaRot.pitch * 0.6 })
   const no2India = useRef(0.85)
   const no2World = useRef(0.6)
   const grid = useRef(1)
@@ -696,14 +725,21 @@ export default function GlobeScene({ clusters, focusId, control, lite, glow }: P
   }, [clusters, control])
 
   useFrame((_, delta) => {
-    const dt = Math.min(delta, 0.1)
+    // Still (reduced motion): no clock, no easing and no pointer parallax; each frame is the final state.
+    const dt = still ? 0 : Math.min(delta, 0.1)
     const c = control.current
     const s = smooth.current
     s.clock += dt
-    s.p += (c.progress - s.p) * Math.min(1, dt * 6)
-    s.mx += (c.mouseX - s.mx) * Math.min(1, dt * 3)
-    s.my += (c.mouseY - s.my) * Math.min(1, dt * 3)
-    s.intro += ((c.intro ?? 1) - s.intro) * Math.min(1, dt * 5)
+    if (still) {
+      s.p = c.progress
+      s.mx = s.my = 0
+      s.intro = c.intro ?? 1
+    } else {
+      s.p += (c.progress - s.p) * Math.min(1, dt * 6)
+      s.mx += (c.mouseX - s.mx) * Math.min(1, dt * 3)
+      s.my += (c.mouseY - s.my) * Math.min(1, dt * 3)
+      s.intro += ((c.intro ?? 1) - s.intro) * Math.min(1, dt * 5)
+    }
     const p = s.p
     const d1 = easeInOut(span(p, 0.12, 0.32)) // overview -> India
     const d2 = easeInOut(span(p, 0.36, 0.54)) // India -> focus cluster
@@ -718,10 +754,10 @@ export default function GlobeScene({ clusters, focusId, control, lite, glow }: P
     const scanAge = c.scan ? (performance.now() - c.scan.t) / 1000 : 99
     if (scanAge < 2.4 && d1 < 0.02 && !c.dragging) {
       const f = faceRot[c.scan!.idx]
-      const k = Math.min(1, dt * 3.2)
+      const k = still ? 1 : Math.min(1, dt * 3.2)
       free.current.yaw += wrapAngle(f.yaw - 0.25 - free.current.yaw) * k
       free.current.pitch += (f.pitch * 0.8 - free.current.pitch) * k
-    } else if (!c.dragging && d1 < 0.02 && (c.hover ?? -1) < 0) free.current.yaw += dt * (0.07 + 0.35 * holdState.level) // holds still under a tooltip
+    } else if (!eco && !c.dragging && d1 < 0.02 && (c.hover ?? -1) < 0) free.current.yaw += dt * (0.07 + 0.35 * holdState.level) // holds still under a tooltip
     free.current.yaw += c.dragYaw
     free.current.pitch = THREE.MathUtils.clamp(free.current.pitch + c.dragPitch, -0.9, 0.9)
     c.dragYaw = 0
@@ -785,16 +821,16 @@ export default function GlobeScene({ clusters, focusId, control, lite, glow }: P
 
   return (
     <>
-      <Stars count={lite ? 500 : 1400} control={control} />
+      <Stars count={lite ? 500 : 1400} control={control} still={still} />
       <group ref={globe}>
         <Earth lite={lite} sun={sun} no2={no2World} grid={grid} />
-        {!lite && <Clouds sun={sun} opacity={cloudOp} />}
+        {!lite && <Clouds sun={sun} opacity={cloudOp} still={still} />}
         <No2Layer opacity={no2India} />
         <Atmosphere strength={rimStrength} />
-        {glow && <Halo strength={haloStrength} />}
-        <Plumes clusters={clusters} total={lite ? 600 : 1400} scale={plumeScale} control={control} />
+        {glow && !eco && <Halo strength={haloStrength} />}
+        {eco || still ? <Markers clusters={clusters} scale={plumeScale} /> : <Plumes clusters={clusters} total={lite ? 600 : 1400} scale={plumeScale} control={control} />}
         <Rings lat={focus.lat} lon={focus.lon} reveal={ringReveal} />
-        <Satellite fade={satFade} clusters={clusters} lite={lite} control={control} />
+        <Satellite fade={satFade} clusters={clusters} lite={lite} control={control} still={still} />
       </group>
     </>
   )
