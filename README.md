@@ -6,6 +6,12 @@
 
 **Live site:** https://main.ddbebutv5mmwf.amplifyapp.com · **API:** https://cn1ob2edc1.execute-api.ap-south-1.amazonaws.com
 
+**Demo video:** https://youtu.be/O-tL-XRi43A
+
+**Blog (Krish):** https://builder.aws.com/content/3KXuYtRu2saSPpqbocG5dba4AMK/coal-plants-report-their-own-pollution-so-we-built-an-eye-in-orbit
+
+**Blog (Suhani):** https://builder.aws.com/content/3KYaamF3QEKc3mIdfYPdAPxf3Ws/the-idea-we-threw-away-and-one-region-lock-shipping-panopticoal-on-aws
+
 **Team 404 Not Found:** Krish Jain (team lead) · Suhani Jain
 
 ![PanoptiCoal: coal plants report their own pollution, we check from space](docs/images/hero_banner.jpg)
@@ -507,6 +513,7 @@ Every tool in PanoptiCoal was chosen for a specific reason. This section explain
 - **Navigation:** full-width nav with the logo far left; every page has a one-line purpose and a main action; cluster pages have a breadcrumb; the intro can be skipped in one click.
 - **Performance:** the globe runs smoothly (well above 60 fps on a typical laptop) after a profiling pass.
 - **Accessibility:** keyboard navigation, reduced-motion support (effects off), readable contrast, mobile layout with a menu.
+- **Accessibility and low-end devices:** respects the OS reduced-motion setting, and a Lite mode (switches on automatically only if the globe runs below 25 fps, toggle in the footer) keeps every feature working on slower PCs.
 
 ---
 
@@ -543,6 +550,7 @@ Every flag is phrased as **"an anomaly that warrants an audit."**
 | **Honest backtest** | The 2020 lockdown test is published, including where the model fails (Mundra) | Credibility comes from showing failures, not hiding them |
 | **Performance profiling** | Scripted FPS and long-frame profiling of the globe, intro, scroll and hold effects | Smooth 3D on ordinary laptops, not just high-end machines |
 | **Usability and accessibility checks** | Scripted checks at 1440 px and 375 px: skip link, focus rings, element names, mobile menu, reduced motion | The site must be easy for regulators and citizens, not just impressive |
+| **Resilient data loading** | Timeseries requests are queued (3 at a time), retried with backoff on 503/429, and cached for the session | Pages that load all 11 clusters at once stay reliable when the API is busy |
 | **Infrastructure as code** | All backend AWS resources in CDK, with settings in `cdk.json` | Reproducible deploys; nothing configured by hand that could be forgotten |
 | **Safe Git workflow** | Commits by explicit path, rollback tags before risky changes, review before push, no secrets or credentials in the repository | Two development sessions worked in parallel without collisions, and every step can be undone |
 | **Cost guardrails** | AWS Budgets alerts; serverless, precomputed design | Near-zero running cost |
