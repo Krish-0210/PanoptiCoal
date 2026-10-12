@@ -512,8 +512,7 @@ Every tool in PanoptiCoal was chosen for a specific reason. This section explain
 - **Sound:** original synthesised soundscape (ambient drone, telemetry blips, hover ticks, hold-and-blast). Off by default: the intro asks "Sound on / Sound off", and a toggle stays in the nav.
 - **Navigation:** full-width nav with the logo far left; every page has a one-line purpose and a main action; cluster pages have a breadcrumb; the intro can be skipped in one click.
 - **Performance:** the globe runs smoothly (well above 60 fps on a typical laptop) after a profiling pass.
-- **Accessibility:** keyboard navigation, reduced-motion support (effects off), readable contrast, mobile layout with a menu.
-- **Accessibility and low-end devices:** respects the OS reduced-motion setting, and a Lite mode (switches on automatically only if the globe runs below 25 fps, toggle in the footer) keeps every feature working on slower PCs.
+- **Accessibility and low-end devices:** keyboard navigation, readable contrast and a mobile layout with a menu; effects turn off when the OS reduced-motion setting is on, and a Lite mode (switches on automatically only if the globe runs below 25 fps, toggle in the footer) keeps every feature working on slower PCs.
 
 ---
 
